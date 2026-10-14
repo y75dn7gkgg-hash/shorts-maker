@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>3選 Shorts Maker</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#151d31;--line:#2a3650;--text:#f3f6ff;--muted:#a8b3c9;--accent:#8be9fd;--good:#8cf0b0;--warn:#ffd479}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#0b1020,#111827);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;line-height:1.5}
+main{max-width:850px;margin:auto;padding:18px 14px 48px}.hero{padding:12px 2px 18px}h1{font-size:26px;margin:0 0 6px}h2{font-size:18px;margin:0 0 12px}p{margin:6px 0;color:var(--muted)}.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 9px;font-size:12px;color:var(--accent)}
+.card{background:rgba(21,29,49,.96);border:1px solid var(--line);border-radius:16px;padding:15px;margin:12px 0}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row>*{flex:1}.label{display:block;font-size:13px;color:var(--muted);margin:10px 0 5px}
+textarea,input[type=file],input[type=text]{width:100%;border:1px solid #394863;border-radius:10px;background:#0c1426;color:var(--text);padding:11px;font:inherit}textarea{min-height:290px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+button{border:0;border-radius:12px;padding:12px 14px;background:var(--accent);color:#06121a;font-weight:750;font-size:15px;cursor:pointer}button.secondary{background:#27344d;color:var(--text);border:1px solid #394863}button:disabled{opacity:.45;cursor:not-allowed}.btnrow{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.btnrow button{flex:1;min-width:145px}
+.status{white-space:pre-wrap;background:#0b1426;border:1px solid var(--line);border-radius:10px;padding:11px;font-size:13px;color:var(--muted);min-height:45px}
+.scene{display:grid;grid-template-columns:1fr;gap:9px;border-top:1px solid var(--line);padding:12px 0}.scene:first-child{border-top:0}.scenehead{display:flex;justify-content:space-between;gap:8px;align-items:center}.scenehead strong{font-size:14px}.scenehead span{color:var(--muted);font-size:12px}
+.preview{width:100%;max-width:220px;aspect-ratio:9/16;object-fit:cover;border:1px solid var(--line);border-radius:10px;background:#111827}
+small{color:var(--muted)}a{color:var(--accent)}.notice{border-left:3px solid var(--warn);padding:8px 11px;background:#282317;border-radius:6px;color:#f4dfb4;font-size:13px}
+progress{width:100%;height:10px;accent-color:var(--accent)}footer{padding:12px 0;color:var(--muted);font-size:12px}
+@media(min-width:650px){.scene{grid-template-columns:150px 1fr}.preview{max-width:150px}.scenecontent{min-width:0}}
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <span class="pill">iPhone Safari / client-side</span>
+    <h1>3選 Shorts Maker</h1>
+    <p>JSON＋画像＋ナレーション素材から、字幕入り縦型MP4を作成します。</p>
+  </header>
+
+  <section class="card">
+    <h2>1. 台本JSON</h2>
+    <p>今回の「買ってよかった便利グッズ3選」を初期入力済み。JSONを貼り替えて使えます。</p>
+    <label class="label" for="jsonInput">JSONデータ</label>
+    <textarea id="jsonInput" spellcheck="false"></textarea>
+    <div class="btnrow">
+      <button id="parseBtn" class="secondary">JSONを読み込む</button>
+      <button id="sampleBtn" class="secondary">サンプルに戻す</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. 画像を場面ごとに割り当て</h2>
+    <p>各場面に1枚ずつ画像を選択。未選択なら簡易背景を生成します。実在商品の紹介では、商品と一致する画像を使ってください。</p>
+    <div id="sceneInputs"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. ナレーション音声</h2>
+    <p>音声ファイル（MP3/WAV/M4A等）または、音声付き動画を選択します。CapCutなどで女性音声を作り、音声付き動画として書き出したファイルも利用できます。</p>
+    <label class="label" for="audioInput">音声または音声付き動画</label>
+    <input id="audioInput" type="file" accept="audio/*,video/*">
+    <p><small>ブラウザの読み上げ音声は、Safari上で直接MP3として保存できないため、このアプリでは音声ファイルを入力します。</small></p>
+  </section>
+
+  <section class="card">
+    <h2>4. MP4を書き出す</h2>
+    <div class="notice">初回はFFmpegエンジン（数十MB程度）をCDNから読み込みます。エンジン自体は無料ですが、インターネット接続が必要です。動画処理は端末内で行います。長い処理中はSafariを閉じないでください。</div>
+    <div class="btnrow">
+      <button id="renderBtn">字幕入りMP4を生成</button>
+      <button id="saveJsonBtn" class="secondary">JSONを保存</button>
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite">JSONを確認し、画像とナレーションを選択してください。</p>
+    <progress id="progress" value="0" max="100"></progress>
+    <div id="outputArea" hidden>
+      <h2 style="margin-top:15px">完成動画</h2>
+      <video id="resultVideo" controls playsinline style="width:100%;border-radius:12px;background:#000"></video>
+      <div class="btnrow">
+        <a id="downloadLink" download="shorts-final.mp4" style="display:block;text-align:center;padding:12px;border-radius:12px;background:#8be9fd;color:#06121a;text-decoration:none;font-weight:750">MP4をダウンロード</a>
+      </div>
+      <p><small>iPhoneではリンクを開いた後、共有メニューから「ビデオを保存」または「ファイルに保存」を選んでください。表示名はiOSのバージョンにより異なります。</small></p>
+    </div>
+  </section>
+  <footer>このアプリは画像・音声・JSONをサーバーへアップロードしません。FFmpeg本体の取得時だけCDNへ通信します。素材の権利・商品情報・公開前の内容はご自身で確認してください。</footer>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
