@@ -3,30 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Shorts Maker 7 - MP4変換テスト</title>
+<title>Shorts Maker 7 - MP4変換</title>
 <style>
-body{font-family:sans-serif;background:#111;color:#fff;padding:18px}
-button{padding:14px;width:100%;border:0;border-radius:8px;background:#2879e8;color:white;font-size:16px}
+body{font-family:sans-serif;background:#111;color:#fff;padding:16px}
+button,input{box-sizing:border-box;width:100%;padding:13px;margin:8px 0;border-radius:8px}
+button{background:#2879e8;color:#fff;border:0;font-size:16px}
+input{background:#222;color:#fff;border:1px solid #555}
 #status{white-space:pre-wrap;line-height:1.6}
 </style>
 </head>
 <body>
 <h1>Shorts Maker 7</h1>
-<p>MP4変換エンジンの読み込みテスト</p>
-<button id="check">変換エンジンを確認</button>
-<p id="status">準備完了</p>
+<p>WebM動画をMP4に変換</p>
+<label>変換する動画ファイル</label>
+<input id="file" type="file" accept="video/webm,.webm,video/*">
+<button id="convert">MP4に変換</button>
+<p id="status">動画を選択してください。</p>
+<a id="save" style="display:none;color:#8ee6bd" download="shorts.mp4">MP4を保存</a>
 <script>
-document.getElementById("check").onclick=async()=>{
- const status=document.getElementById("status");
- status.textContent="変換エンジンを読み込み中…";
+const status=document.getElementById("status");
+const fileInput=document.getElementById("file");
+const save=document.getElementById("save");
+let outputURL=null;
+document.getElementById("convert").onclick=async()=>{
+ const file=fileInput.files[0];
+ if(!file){status.textContent="先に動画ファイルを選んでください。";return;}
+ const button=document.getElementById("convert");
+ button.disabled=true;
+ save.style.display="none";
+ status.textContent="変換ライブラリを読み込み中…";
+ let ffmpeg;
  try{
-   const r=await fetch("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js");
-   if(!r.ok)throw new Error("配信元から読み込めませんでした");
-   const t=await r.text();
-   if(!t.includes("FFmpeg"))throw new Error("ライブラリを確認できません");
-   status.textContent="ライブラリの取得に成功！\n次に変換機能を組み込めます。";
+   const {FFmpeg}=await import("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
+   const {toBlobURL}=await import("https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js");
+   ffmpeg=new FFmpeg();
+   ffmpeg.on("log",({message})=>{
+     status.textContent="変換中…\n"+message.slice(-180);
+   });
+   await ffmpeg.load({
+     coreURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js","text/javascript"),
+     wasmURL:await toBlobURL("https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm","application/wasm")
+   });
+   status.textContent="動画を読み込んでいます…";
+   await ffmpeg.writeFile("input.webm",new Uint8Array(await file.arrayBuffer()));
+   status.textContent="MP4に変換中…";
+   await ffmpeg.exec(["-i","input.webm","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p","-c:a","aac","-movflags","+faststart","output.mp4"]);
+   const data=await ffmpeg.readFile("output.mp4");
+   const blob=new Blob([data],{type:"video/mp4"});
+   if(!blob.size)throw new Error("変換後のファイルが空です。");
+   if(outputURL)URL.revokeObjectURL(outputURL);
+   outputURL=URL.createObjectURL(blob);
+   save.href=outputURL;
+   save.download="shorts.mp4";
+   save.style.display="block";
+   status.textContent="変換完了！下のリンクからMP4を保存してください。";
  }catch(e){
-   status.textContent="読み込み失敗：\n"+e.message+"\n通信環境を確認して、もう一度試してください。";
+   status.textContent="変換できませんでした。\n"+(e.message||e)+"\n\n通信・メモリ不足・変換形式が原因の可能性があります。";
+ }finally{
+   button.disabled=false;
+   if(ffmpeg){try{await ffmpeg.terminate();}catch(e){}}
  }
 };
 </script>
