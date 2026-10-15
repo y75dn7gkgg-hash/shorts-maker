@@ -1,1 +1,104 @@
-
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Maker 5</title>
+<style>
+body{font-family:sans-serif;background:#111;color:#fff;padding:16px}
+h1{font-size:24px}
+button{padding:12px;margin:5px;border:0;border-radius:8px;background:#2678e8;color:#fff}
+textarea,input{box-sizing:border-box;width:100%;padding:12px;margin:6px 0;background:#222;color:#fff;border:1px solid #555;border-radius:8px}
+.scene{border:1px solid #555;border-radius:10px;padding:12px;margin:14px 0}
+video{width:100%;max-height:300px;background:#000}
+#status{color:#8ee6bd}
+</style>
+</head>
+<body>
+<h1>Shorts Maker 5</h1>
+<p>台本と素材を場面ごとに管理するテスト版</p>
+<label>動画タイトル</label>
+<input id="title" value="便利グッズ3選">
+<div id="scenes"></div>
+<button onclick="addScene()">＋ 場面を追加</button>
+<button onclick="save()">保存</button>
+<p id="status">準備完了</p>
+<script>
+const KEY="shorts-maker-5";
+let count=0;
+function addScene(data={}){
+  count++;
+  const id=count;
+  const div=document.createElement("div");
+  div.className="scene";
+  div.dataset.id=id;
+  div.innerHTML=`
+    <h3>場面 ${id}</h3>
+    <label>字幕・台本</label>
+    <textarea class="caption" placeholder="この場面のセリフ"></textarea>
+    <label>画像</label>
+    <input class="picture" type="file" accept="image/*">
+    <label>音声（MP3・M4Aなど）</label>
+    <input class="sound" type="file" accept="audio/*">
+    <button class="play">音声を確認</button>
+    <button class="remove">この場面を削除</button>
+    <audio controls style="display:none;width:100%"></audio>
+  `;
+  div.querySelector(".caption").value=data.caption||"";
+  div.querySelector(".remove").onclick=()=>{
+    div.remove();
+    renumber();
+    save();
+  };
+  const sound=div.querySelector(".sound");
+  const audio=div.querySelector("audio");
+  sound.onchange=()=>{
+    if(sound.files[0]){
+      audio.src=URL.createObjectURL(sound.files[0]);
+      audio.style.display="block";
+      save();
+    }
+  };
+  div.querySelector(".play").onclick=()=>{
+    if(!audio.src){alert("先に音声ファイルを選んでね");return;}
+    audio.play();
+  };
+  div.querySelector(".caption").oninput=save;
+  document.getElementById("scenes").appendChild(div);
+  renumber();
+}
+function renumber(){
+  document.querySelectorAll(".scene h3").forEach((h,i)=>{
+    h.textContent="場面 "+(i+1);
+  });
+}
+function save(){
+  const data={
+    title:document.getElementById("title").value,
+    scenes:[...document.querySelectorAll(".scene")].map(s=>({
+      caption:s.querySelector(".caption").value
+    }))
+  };
+  try{
+    localStorage.setItem(KEY,JSON.stringify(data));
+    document.getElementById("status").textContent="台本を保存しました";
+  }catch(e){
+    document.getElementById("status").textContent="保存できませんでした";
+  }
+}
+function restore(){
+  try{
+    const data=JSON.parse(localStorage.getItem(KEY)||"null");
+    if(data){
+      document.getElementById("title").value=data.title||"便利グッズ3選";
+      (data.scenes||[]).forEach(s=>addScene(s));
+      document.getElementById("status").textContent="前回の台本を復元しました";
+    }
+  }catch(e){}
+  if(!document.querySelector(".scene"))addScene();
+}
+document.getElementById("title").oninput=save;
+restore();
+</script>
+</body>
+</html>
