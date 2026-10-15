@@ -188,7 +188,11 @@ async function ensureFFmpeg() {
   const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
   const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript");
   const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm");
-  await ffmpeg.load({coreURL, wasmURL});
+  const classWorkerURL = await toBlobURL(
+  "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/worker.js",
+  "text/javascript"
+);
+await ffmpeg.load({ coreURL, wasmURL, classWorkerURL });
   ffmpegReady = true;
 }
 
