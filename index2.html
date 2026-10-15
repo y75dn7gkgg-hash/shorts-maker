@@ -1,1 +1,157 @@
 
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>無料 Shorts Maker</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#111827;color:#fff;margin:0;padding:16px}
+h1{font-size:24px}
+.card{background:#1f2937;padding:16px;border-radius:12px;margin:14px 0}
+label{display:block;margin:12px 0 6px}
+input,textarea,button{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid #4b5563;font-size:16px}
+textarea,input{background:#111827;color:white}
+button{background:#38bdf8;color:#082f49;font-weight:bold;margin-top:12px;border:0}
+canvas{width:100%;max-width:360px;display:block;margin:12px auto;background:#000}
+small{color:#cbd5e1}
+</style>
+</head>
+<body>
+<h1>🎬 無料 Shorts Maker</h1>
+<p>画像・字幕・音声から縦型ショート動画を作成</p>
+
+<div class="card">
+<label>動画タイトル</label>
+<input id="title" value="便利グッズ3選">
+<label>字幕（1行ずつ入力）</label>
+<textarea id="captions" rows="5">暮らしが変わる便利グッズ3選
+第3位 ハンディクリーナー
+第2位 自動ソープディスペンサー
+第1位 電子メモパッド
+気になる商品はあった？</textarea>
+<label>画像（複数選択可）</label>
+<input id="images" type="file" accept="image/*" multiple>
+<label>ナレーション音声（任意）</label>
+<input id="audio" type="file" accept="audio/*,video/mp4,video/quicktime">
+<label>1場面あたりの秒数</label>
+<input id="seconds" type="number" min="2" max="15" value="8">
+<button id="preview">プレビュー</button>
+<canvas id="screen" width="360" height="640"></canvas>
+<button id="make">動画を生成</button>
+<p id="status">準備完了</p>
+<a id="download" hidden style="color:#7dd3fc">動画を保存</a>
+<small>※動画形式はブラウザの対応状況によります。生成中はこのページを閉じないでください。</small>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$("screen"),ctx=canvas.getContext("2d");
+let imageList=[],frame=0,recordedURL=null;
+
+$("images").addEventListener("change",async()=>{
+  imageList=[];
+  for(const file of $("images").files){
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.src=url;
+    await img.decode();
+    imageList.push({img,url});
+  }
+  $("status").textContent=`画像 ${imageList.length}枚を読み込みました`;
+  drawFrame(0);
+});
+
+function drawFrame(index){
+  const captions=$("captions").value.split("\n").filter(x=>x.trim());
+  const count=Math.max(1,captions.length);
+  const item=imageList.length?imageList[index%imageList.length]:null;
+  ctx.fillStyle="#172033";
+  ctx.fillRect(0,0,360,640);
+  if(item){
+    const img=item.img;
+    const scale=Math.max(360/img.width,640/img.height);
+    const w=img.width*scale,h=img.height*scale;
+    ctx.drawImage(img,(360-w)/2,(640-h)/2,w,h);
+  }
+  const gradient=ctx.createLinearGradient(0,350,0,640);
+  gradient.addColorStop(0,"rgba(0,0,0,0)");
+  gradient.addColorStop(1,"rgba(0,0,0,.92)");
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,300,360,340);
+  ctx.textAlign="center";
+  ctx.font="bold 17px sans-serif";
+  ctx.fillStyle="#7dd3fc";
+  ctx.fillText($("title").value,180,390);
+  const text=captions[index%count]||"";
+  ctx.font="bold 25px sans-serif";
+  ctx.fillStyle="#fff";
+  const words=text.match(/.{1,16}/gu)||[text];
+  words.slice(0,4).forEach((line,i)=>ctx.fillText(line,180,450+i*36));
+}
+
+$("preview").onclick=()=>{drawFrame(0);$("status").textContent="プレビュー表示中";};
+
+$("make").onclick=async()=>{
+  try{
+    $("make").disabled=true;
+    $("download").hidden=true;
+    const images=imageList;
+    const captions=$("captions").value.split("\n").filter(x=>x.trim());
+    if(!captions.length)throw Error("字幕を入力してください");
+    if(!images.length)throw Error("まず画像を1枚以上選んでください");
+    if(!canvas.captureStream||!window.MediaRecorder)throw Error("このブラウザは動画生成に対応していません。");
+    const seconds=Math.max(2,Math.min(15,Number($("seconds").value)||8));
+    const stream=canvas.captureStream(30);
+    const audioFile=$("audio").files[0];
+    let audioContext=null,source=null,destination=null,audioElement=null;
+    if(audioFile){
+      audioElement=new Audio();
+      audioElement.src=URL.createObjectURL(audioFile);
+      audioElement.loop=true;
+      audioContext=new AudioContext();
+      source=audioContext.createMediaElementSource(audioElement);
+      destination=audioContext.createMediaStreamDestination();
+      source.connect(destination);
+      source.connect(audioContext.destination);
+      destination.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+      await audioContext.resume();
+    }
+    const mime=["video/mp4;codecs=avc1","video/webm;codecs=vp9","video/webm"].find(t=>MediaRecorder.isTypeSupported(t));
+    if(!mime)throw Error("このブラウザで利用できる動画形式がありません");
+    const recorder=new MediaRecorder(stream,{mimeType:mime});
+    const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+    const finished=new Promise((resolve,reject)=>{
+      recorder.onstop=resolve;
+      recorder.onerror=()=>reject(Error("動画の録画に失敗しました"));
+    });
+    recorder.start(500);
+    if(audioElement)await audioElement.play();
+    const total=captions.length*seconds;
+    for(let i=0;i<captions.length;i++){
+      drawFrame(i);
+      $("status").textContent=`動画を生成中 ${i+1}/${captions.length}`;
+      await new Promise(r=>setTimeout(r,seconds*1000));
+    }
+    recorder.stop();
+    await finished;
+    if(audioElement){audioElement.pause();audioElement.src="";}
+    if(audioContext)await audioContext.close();
+    stream.getTracks().forEach(t=>t.stop());
+    const blob=new Blob(chunks,{type:mime.split(";")[0]});
+    if(recordedURL)URL.revokeObjectURL(recordedURL);
+    recordedURL=URL.createObjectURL(blob);
+    $("download").href=recordedURL;
+    $("download").download="shorts-video."+ (mime.includes("mp4")?"mp4":"webm");
+    $("download").textContent="完成動画を保存";
+    $("download").hidden=false;
+    $("status").textContent=`完成！ 約${total}秒。再生確認して保存してください。`;
+  }catch(e){
+    $("status").textContent="エラー："+e.message;
+  }finally{$("make").disabled=false;}
+};
+drawFrame(0);
+</script>
+</body>
+</html>
