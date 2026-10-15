@@ -1,1 +1,205 @@
-
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Maker 6</title>
+<style>
+body{font-family:sans-serif;background:#111;color:#fff;padding:16px}
+input,textarea,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0;border-radius:8px}
+input,textarea{background:#222;color:#fff;border:1px solid #555}
+button{background:#2879e8;color:#fff;border:0;font-size:16px}
+.scene{border:1px solid #555;border-radius:10px;padding:12px;margin:16px 0}
+canvas,video{width:100%;max-width:360px;background:#000}
+#status{color:#8ee6bd;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>Shorts Maker 6</h1>
+<p>画像・字幕・音声から縦型動画を作成</p>
+<label>動画タイトル</label>
+<input id="title" value="便利グッズ3選">
+<div id="scenes"></div>
+<button id="add">＋ 場面を追加</button>
+<button id="make">動画を生成</button>
+<p id="status">準備完了</p>
+<video id="result" controls playsinline style="display:none"></video>
+<a id="download" style="display:none;color:#8ee6bd" download="shorts.webm">動画を保存</a>
+<script>
+const $=id=>document.getElementById(id);
+let nextId=0;
+let resultURL=null;
+function addScene(){
+  nextId++;
+  const s=document.createElement("section");
+  s.className="scene";
+  s.innerHTML=`
+    <h3>場面 ${nextId}</h3>
+    <label>字幕・台本</label>
+    <textarea class="caption" placeholder="この場面のセリフ"></textarea>
+    <label>画像</label>
+    <input class="image" type="file" accept="image/*">
+    <label>音声（MP3・M4A・音声入りMP4）</label>
+    <input class="audio" type="file" accept="audio/*,video/mp4,video/quicktime,.mov">
+    <button class="play">音声を確認</button>
+    <audio controls style="display:none;width:100%"></audio>
+    <button class="remove">この場面を削除</button>`;
+  const audioInput=s.querySelector(".audio");
+  const audio=s.querySelector("audio");
+  audioInput.onchange=()=>{
+    if(audioInput.files[0]){
+      audio.src=URL.createObjectURL(audioInput.files[0]);
+      audio.style.display="block";
+    }
+  };
+  s.querySelector(".play").onclick=()=>{
+    if(!audio.src){alert("先に音声ファイルを選んでね");return;}
+    audio.play();
+  };
+  s.querySelector(".remove").onclick=()=>s.remove();
+  $("scenes").appendChild(s);
+}
+$("add").onclick=addScene;
+addScene();
+function loadImage(file){
+  return new Promise((resolve,reject)=>{
+    if(!file){resolve(null);return;}
+    const img=new Image();
+    img.onload=()=>resolve(img);
+    img.onerror=()=>reject(new Error("画像を読み込めませんでした"));
+    img.src=URL.createObjectURL(file);
+  });
+}
+function waitForMedia(media){
+  return new Promise((resolve,reject)=>{
+    if(media.readyState>=1 && Number.isFinite(media.duration)){
+      resolve();return;
+    }
+    media.onloadedmetadata=()=>resolve();
+    media.onerror=()=>reject(new Error("音声を読み込めません。MP3/M4Aを試してね"));
+    media.load();
+  });
+}
+function drawScene(ctx,img,caption){
+  const W=720,H=1280;
+  ctx.fillStyle="#111";
+  ctx.fillRect(0,0,W,H);
+  if(img){
+    const scale=Math.max(W/img.width,H/img.height);
+    const w=img.width*scale,h=img.height*scale;
+    ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h);
+  }
+  if(caption.trim()){
+    ctx.font="bold 48px sans-serif";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    const maxWidth=620;
+    const words=caption.trim().split("");
+    const lines=[];let line="";
+    for(const ch of words){
+      if(ctx.measureText(line+ch).width>maxWidth && line){
+        lines.push(line);line=ch;
+      }else line+=ch;
+    }
+    if(line)lines.push(line);
+    const shown=lines.slice(0,4);
+    const lineH=62;
+    const boxH=shown.length*lineH+44;
+    const y=H-boxH-90;
+    ctx.fillStyle="rgba(0,0,0,0.72)";
+    ctx.fillRect(30,y,W-60,boxH);
+    ctx.fillStyle="#fff";
+    shown.forEach((t,i)=>ctx.fillText(t,W/2,y+22+lineH*i+lineH/2,620));
+  }
+}
+$("make").onclick=async()=>{
+  const button=$("make");
+  button.disabled=true;
+  $("status").textContent="動画を準備中…";
+  try{
+    if(!window.MediaRecorder)throw new Error("このブラウザでは動画生成に対応していません");
+    const scenes=[...document.querySelectorAll(".scene")];
+    if(!scenes.length)throw new Error("場面を1つ以上追加してね");
+    const data=[];
+    for(let i=0;i<scenes.length;i++){
+      const s=scenes[i];
+      const imageFile=s.querySelector(".image").files[0];
+      const audioFile=s.querySelector(".audio").files[0];
+      const caption=s.querySelector(".caption").value;
+      if(!imageFile||!audioFile){
+        throw new Error(`場面${i+1}の画像と音声を選んでね`);
+      }
+      $("status").textContent=`素材を読み込み中 ${i+1}/${scenes.length}`;
+      const img=await loadImage(imageFile);
+      const media=document.createElement("audio");
+      media.src=URL.createObjectURL(audioFile);
+      media.preload="auto";
+      await waitForMedia(media);
+      if(!Number.isFinite(media.duration)||media.duration<=0){
+        throw new Error(`場面${i+1}の音声の長さを読み取れません`);
+      }
+      data.push({img,caption,media,duration:media.duration});
+    }
+    const canvas=document.createElement("canvas");
+    canvas.width=720;canvas.height=1280;
+    const ctx=canvas.getContext("2d");
+    const stream=canvas.captureStream(30);
+    const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+    if(!AudioContextClass)throw new Error("音声合成に対応していません");
+    const ac=new AudioContextClass();
+    const destination=ac.createMediaStreamDestination();
+    const sources=data.map(d=>{
+      const src=ac.createMediaElementSource(d.media);
+      src.connect(destination);
+      return src;
+    });
+    destination.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+    let mime="video/webm";
+    if(!MediaRecorder.isTypeSupported(mime)){
+      mime="";
+    }
+    const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+    const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    const finished=new Promise((resolve,reject)=>{
+      recorder.onstop=()=>resolve();
+      recorder.onerror=()=>reject(new Error("動画の録画に失敗しました"));
+    });
+    recorder.start(1000);
+    await ac.resume();
+    for(let i=0;i<data.length;i++){
+      const d=data[i];
+      $("status").textContent=`動画を生成中 ${i+1}/${data.length}`;
+      drawScene(ctx,d.img,d.caption);
+      d.media.currentTime=0;
+      await new Promise((resolve,reject)=>{
+        d.media.onended=resolve;
+        d.media.onerror=()=>reject(new Error(`場面${i+1}の音声再生に失敗しました`));
+        const p=d.media.play();
+        if(p&&p.catch)p.catch(()=>reject(new Error("音声を再生できません。画面を操作してから再試行してね")));
+      });
+    }
+    recorder.stop();
+    await finished;
+    await ac.close();
+    const blob=new Blob(chunks,{type:recorder.mimeType||"video/webm"});
+    if(!blob.size)throw new Error("動画データが空でした");
+    if(resultURL)URL.revokeObjectURL(resultURL);
+    resultURL=URL.createObjectURL(blob);
+    $("result").src=resultURL;
+    $("result").style.display="block";
+    $("download").href=resultURL;
+    $("download").download="shorts.webm";
+    $("download").textContent="生成した動画を保存";
+    $("download").style.display="block";
+    $("status").textContent="生成完了！動画を再生して確認してね。";
+    sources.length=0;
+  }catch(e){
+    $("status").textContent="エラー："+(e.message||e);
+  }finally{
+    button.disabled=false;
+  }
+};
+</script>
+</body>
+</html>
