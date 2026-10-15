@@ -1,1 +1,159 @@
 
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Maker 3</title>
+<style>
+body{font-family:-apple-system,sans-serif;background:#111827;color:#fff;padding:16px;margin:0}
+h1{font-size:23px}
+.card{background:#1f2937;padding:14px;border-radius:12px;margin:14px 0}
+label{display:block;margin:12px 0 6px}
+input,textarea,button{box-sizing:border-box;width:100%;padding:11px;border-radius:8px;border:1px solid #64748b;font-size:16px}
+input,textarea{background:#0f172a;color:white}
+button{background:#38bdf8;color:#082f49;font-weight:bold;border:0;margin-top:12px}
+canvas{width:100%;max-width:300px;display:block;margin:12px auto;background:#000}
+.scene{border-top:1px solid #475569;margin-top:16px;padding-top:12px}
+small{color:#cbd5e1}
+</style>
+</head>
+<body>
+<h1>🎬 Shorts Maker 3</h1>
+<p>画像・字幕・音声を場面ごとに同期して動画を作成</p>
+
+<div class="card">
+<label>動画タイトル</label>
+<input id="title" value="便利グッズ3選">
+<div id="scenes"></div>
+<button id="add">＋ 場面を追加</button>
+<button id="preview">プレビュー</button>
+<canvas id="screen" width="360" height="640"></canvas>
+<button id="make">動画を生成</button>
+<p id="status">場面を登録してください</p>
+<a id="download" hidden style="color:#7dd3fc">完成動画を保存</a>
+<small>音声の長さに合わせて場面を切り替えます。生成中はページを閉じないでください。</small>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$("screen"),ctx=canvas.getContext("2d");
+let scenes=[],urls=[],recordURL=null;
+
+function addScene(){
+ const n=scenes.length;
+ const wrap=document.createElement("div");
+ wrap.className="scene";
+ wrap.innerHTML=`
+ <h3>場面 ${n+1}</h3>
+ <label>字幕</label><textarea class="caption" rows="2" placeholder="この場面で話す文章"></textarea>
+ <label>画像</label><input class="image" type="file" accept="image/*">
+ <label>ナレーション音声</label><input class="audio" type="file" accept="audio/*">
+ <small>音声はMP3やM4Aなどを選んでください。</small>`;
+ $("scenes").appendChild(wrap);
+ scenes.push(wrap);
+}
+addScene();
+
+function loadImage(file){
+ return new Promise((resolve,reject)=>{
+  const url=URL.createObjectURL(file),img=new Image();
+  img.onload=()=>resolve({img,url});
+  img.onerror=()=>reject(Error("画像を読み込めません"));
+  img.src=url;
+ });
+}
+function draw(scene){
+ ctx.fillStyle="#172033";ctx.fillRect(0,0,360,640);
+ if(scene&&scene.image){
+  const im=scene.image.img;
+  const scale=Math.max(360/im.width,640/im.height);
+  const w=im.width*scale,h=im.height*scale;
+  ctx.drawImage(im,(360-w)/2,(640-h)/2,w,h);
+ }
+ const g=ctx.createLinearGradient(0,340,0,640);
+ g.addColorStop(0,"rgba(0,0,0,0)");
+ g.addColorStop(1,"rgba(0,0,0,.95)");
+ ctx.fillStyle=g;ctx.fillRect(0,300,360,340);
+ ctx.textAlign="center";ctx.fillStyle="#7dd3fc";
+ ctx.font="bold 17px sans-serif";ctx.fillText($("title").value,180,385);
+ ctx.fillStyle="white";ctx.font="bold 25px sans-serif";
+ const lines=(scene?.caption||"").match(/.{1,14}/gu)||[];
+ lines.slice(0,5).forEach((line,i)=>ctx.fillText(line,180,440+i*36));
+}
+function collect(){
+ return scenes.map((el,i)=>({
+  caption:el.querySelector(".caption").value.trim(),
+  imageFile:el.querySelector(".image").files[0],
+  audioFile:el.querySelector(".audio").files[0],
+  image:null
+ }));
+}
+$("add").onclick=addScene;
+$("preview").onclick=async()=>{
+ try{
+  const data=collect(),s=data[0];
+  if(!s.imageFile)throw Error("場面1の画像を選んでください");
+  s.image=await loadImage(s.imageFile);draw(s);
+  $("status").textContent="プレビュー表示中";
+ }catch(e){$("status").textContent=e.message}
+};
+$("make").onclick=async()=>{
+ let stream,recorder,audioEls=[];
+ try{
+  $("make").disabled=true;$("download").hidden=true;
+  const data=collect();
+  if(!data.length)throw Error("場面を追加してください");
+  for(let i=0;i<data.length;i++){
+   if(!data[i].caption||!data[i].imageFile||!data[i].audioFile)
+    throw Error(`場面${i+1}の字幕・画像・音声をすべて指定してください`);
+   data[i].image=await loadImage(data[i].imageFile);
+  }
+  if(!canvas.captureStream||!window.MediaRecorder)throw Error("このブラウザは動画生成に対応していません");
+  const mime=["video/mp4;codecs=avc1","video/webm;codecs=vp9","video/webm"].find(t=>MediaRecorder.isTypeSupported(t));
+  if(!mime)throw Error("このブラウザは対応する動画形式がありません");
+  stream=canvas.captureStream(30);
+  const audioCtx=new AudioContext(),dest=audioCtx.createMediaStreamDestination();
+  for(const s of data){
+   const el=new Audio();el.src=URL.createObjectURL(s.audioFile);
+   el.preload="auto";await new Promise((res,rej)=>{el.onloadedmetadata=res;el.onerror=()=>rej(Error("音声を読み込めません"));});
+   s.duration=el.duration;
+   if(!Number.isFinite(s.duration)||s.duration<=0)throw Error("音声の長さを取得できません");
+   const src=audioCtx.createMediaElementSource(el);src.connect(dest);src.connect(audioCtx.destination);
+   s.player=el;audioEls.push(el);
+  }
+  dest.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+  await audioCtx.resume();
+  recorder=new MediaRecorder(stream,{mimeType:mime});
+  const chunks=[];
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  const done=new Promise((res,rej)=>{recorder.onstop=res;recorder.onerror=()=>rej(Error("録画に失敗しました"))});
+  recorder.start(500);
+  for(let i=0;i<data.length;i++){
+   const s=data[i];draw(s);
+   $("status").textContent=`生成中 ${i+1}/${data.length}`;
+   s.player.currentTime=0;await s.player.play();
+   await new Promise(resolve=>{s.player.onended=resolve;});
+   s.player.pause();
+  }
+  recorder.stop();await done;
+  audioEls.forEach(a=>{a.pause();a.src=""});
+  await audioCtx.close();stream.getTracks().forEach(t=>t.stop());
+  const blob=new Blob(chunks,{type:mime.split(";")[0]});
+  if(recordURL)URL.revokeObjectURL(recordURL);
+  recordURL=URL.createObjectURL(blob);
+  $("download").href=recordURL;
+  $("download").download="shorts-video."+(mime.includes("mp4")?"mp4":"webm");
+  $("download").textContent="完成動画を保存";$("download").hidden=false;
+  $("status").textContent="完成！音声・画像・字幕を確認して保存してください。";
+ }catch(e){
+  if(recorder&&recorder.state!=="inactive")recorder.stop();
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  $("status").textContent="エラー："+e.message;
+ }finally{$("make").disabled=false}
+};
+draw(null);
+</script>
+</body>
+</html>
+
