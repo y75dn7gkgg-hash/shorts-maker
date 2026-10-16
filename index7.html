@@ -2,40 +2,165 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>音声抽出テスト</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shorts Maker 7</title>
 <style>
-body{font-family:sans-serif;background:#111;color:#fff;padding:20px}
-button,input{width:100%;box-sizing:border-box;padding:14px;margin:10px 0}
-button{background:#2879e8;color:white;border:0;border-radius:8px;font-size:16px}
-#status{white-space:pre-wrap;line-height:1.6}
+body{font-family:sans-serif;background:#111;color:#fff;padding:16px}
+input,textarea,button{box-sizing:border-box;width:100%;padding:12px;margin:7px 0}
+button{background:#2879e8;color:#fff;border:0;border-radius:8px;font-size:16px}
+textarea,input{background:#222;color:#fff;border:1px solid #555;border-radius:6px}
+canvas{width:100%;max-width:360px;display:block;margin:12px auto;background:#222}
+#status{white-space:pre-wrap;line-height:1.5}
 </style>
 </head>
 <body>
-<h1>動画から音声を抽出</h1>
-<p>動画を選び、音声ファイルを作ります。</p>
-<input id="video" type="file" accept="video/*">
-<button id="go">音声を抽出</button>
-<p id="status">動画を選択してください。</p>
-<a id="save" style="display:none;color:#8ee6bd" download="audio.m4a">音声を保存</a>
+<h1>Shorts Maker 7</h1>
+<p>画像・字幕・音声から縦型動画を作成</p>
+<label>背景画像</label>
+<input id="image" type="file" accept="image/*">
+<label>ナレーション音声</label>
+<input id="audio" type="file" accept="audio/*">
+<label>字幕</label>
+<textarea id="caption" rows="3" placeholder="ここに字幕を入力"></textarea>
+<label>動画の長さ（秒）</label>
+<input id="duration" type="number" min="3" max="60" value="10">
+<canvas id="canvas" width="720" height="1280"></canvas>
+<button id="preview">プレビュー</button>
+<button id="make">動画を生成</button>
+<p id="status">画像と音声を選択してください。</p>
+<a id="save" style="display:none;color:#8ee6bd">生成動画を保存</a>
 <script>
-const video = document.getElementById("video");
-const status = document.getElementById("status");
-const save = document.getElementById("save");
-document.getElementById("go").onclick = async () => {
-  const file = video.files[0];
-  if (!file) {
-    status.textContent = "先に動画を選んでください。";
+const canvas=document.getElementById("canvas");
+const ctx=canvas.getContext("2d");
+const imageInput=document.getElementById("image");
+const audioInput=document.getElementById("audio");
+const captionInput=document.getElementById("caption");
+const durationInput=document.getElementById("duration");
+const status=document.getElementById("status");
+const save=document.getElementById("save");
+let loadedImage=null;
+let outputURL=null;
+function draw(){
+  ctx.fillStyle="#111";
+  ctx.fillRect(0,0,720,1280);
+  if(loadedImage){
+    const scale=Math.max(720/loadedImage.width,1280/loadedImage.height);
+    const w=loadedImage.width*scale;
+    const h=loadedImage.height*scale;
+    ctx.drawImage(loadedImage,(720-w)/2,(1280-h)/2,w,h);
+  }
+  const text=captionInput.value.trim();
+  if(text){
+    ctx.font="bold 48px sans-serif";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    const maxWidth=640;
+    const words=text.split("");
+    const lines=[];
+    let line="";
+    for(const ch of words){
+      if(ctx.measureText(line+ch).width>maxWidth){
+        lines.push(line);
+        line=ch;
+      }else line+=ch;
+    }
+    if(line)lines.push(line);
+    const lineHeight=60;
+    const blockHeight=lines.length*lineHeight;
+    ctx.fillStyle="rgba(0,0,0,.68)";
+    ctx.fillRect(20,1280-blockHeight-110,680,blockHeight+60);
+    ctx.fillStyle="#fff";
+    lines.forEach((t,i)=>ctx.fillText(t,360,1280-blockHeight-80+i*lineHeight+lineHeight/2,640));
+  }
+}
+imageInput.onchange=()=>{
+  const file=imageInput.files[0];
+  if(!file)return;
+  const url=URL.createObjectURL(file);
+  const img=new Image();
+  img.onload=()=>{loadedImage=img;draw();URL.revokeObjectURL(url);status.textContent="画像を読み込みました。";};
+  img.onerror=()=>{status.textContent="画像を読み込めませんでした。";};
+  img.src=url;
+};
+captionInput.oninput=draw;
+document.getElementById("preview").onclick=()=>{
+  draw();
+  status.textContent="プレビューを更新しました。";
+};
+document.getElementById("make").onclick=async()=>{
+  if(!loadedImage){status.textContent="先に背景画像を選択してください。";return;}
+  if(!audioInput.files[0]){status.textContent="先にナレーション音声を選択してください。";return;}
+  if(!window.MediaRecorder||!canvas.captureStream){
+    status.textContent="このブラウザは動画生成に対応していません。";
     return;
   }
-  status.textContent =
-    "動画は読み込めました。\n" +
-    "ファイル名: " + file.name + "\n" +
-    "形式: " + file.type + "\n\n" +
-    "このページだけでは動画から音声を直接抽出できないため、" +
-    "次は対応する変換方法を案内します。";
-  save.style.display = "none";
+  const audioFile=audioInput.files[0];
+  const seconds=Math.max(3,Math.min(60,Number(durationInput.value)||10));
+  status.textContent="動画を準備しています…";
+  let audioURL=URL.createObjectURL(audioFile);
+  let audio=new Audio();
+  audio.src=audioURL;
+  audio.preload="auto";
+  try{
+    await new Promise((resolve,reject)=>{
+      audio.oncanplaythrough=resolve;
+      audio.onerror=()=>reject(new Error("音声を読み込めません。"));
+      audio.load();
+    });
+    const stream=canvas.captureStream(30);
+    const audioContext=new AudioContext();
+    const source=audioContext.createMediaElementSource(audio);
+    const destination=audioContext.createMediaStreamDestination();
+    source.connect(destination);
+    source.connect(audioContext.destination);
+    destination.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
+    let mime="video/webm";
+    if(MediaRecorder.isTypeSupported("video/mp4"))mime="video/mp4";
+    else if(MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus"))mime="video/webm;codecs=vp8,opus";
+    else if(MediaRecorder.isTypeSupported("video/webm"))mime="video/webm";
+    else throw new Error("このブラウザで利用できる動画形式がありません。");
+    const recorder=new MediaRecorder(stream,{mimeType:mime});
+    const chunks=[];
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+    recorder.onerror=()=>{status.textContent="録画中にエラーが発生しました。";};
+    const done=new Promise(resolve=>recorder.onstop=resolve);
+    draw();
+    await audioContext.resume();
+    recorder.start();
+    await audio.play();
+    status.textContent="動画を生成中…";
+    const start=Date.now();
+    await new Promise(resolve=>{
+      const tick=()=>{
+        draw();
+        if(Date.now()-start>=seconds*1000){
+          resolve();
+        }else requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    audio.pause();
+    recorder.stop();
+    await done;
+    stream.getTracks().forEach(t=>t.stop());
+    destination.stream.getTracks().forEach(t=>t.stop());
+    await audioContext.close();
+    const blob=new Blob(chunks,{type:mime});
+    if(!blob.size)throw new Error("動画データが空です。");
+    if(outputURL)URL.revokeObjectURL(outputURL);
+    outputURL=URL.createObjectURL(blob);
+    save.href=outputURL;
+    save.download=mime.includes("mp4")?"shorts.mp4":"shorts.webm";
+    save.textContent="生成動画を保存 ("+save.download+")";
+    save.style.display="block";
+    status.textContent="生成完了！保存リンクをタップしてください。";
+  }catch(e){
+    status.textContent="生成できませんでした。\n"+(e.message||e);
+  }finally{
+    URL.revokeObjectURL(audioURL);
+  }
 };
+draw();
 </script>
 </body>
 </html>
