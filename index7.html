@@ -126,7 +126,7 @@ document.getElementById("make").onclick=async()=>{
     });
     const seconds=audio.duration;
     if(!Number.isFinite(seconds)||seconds<=0)throw new Error("音声の長さを取得できません。");
-    const stream=canvas.captureStream(30);
+    const stream=canvas.captureStream(0);
     const audioContext=new AudioContext();
     const source=audioContext.createMediaElementSource(audio);
     const destination=audioContext.createMediaStreamDestination();
@@ -144,11 +144,13 @@ document.getElementById("make").onclick=async()=>{
     const done=new Promise((resolve,reject)=>{
       recorder.onstop=resolve;recorder.onerror=()=>reject(new Error("録画中にエラーが発生しました。"));
     });
-    let animation;
-    const render=()=>{
-      draw(audio.currentTime||0);
-      if(!audio.paused&&!audio.ended)animation=requestAnimationFrame(render);
-    };
+   const videoTrack=stream.getVideoTracks()[0];
+let animation;
+const render=()=>{
+  draw(audio.currentTime||0);
+  if(videoTrack && videoTrack.requestFrame) videoTrack.requestFrame();
+  if(!audio.paused&&!audio.ended) animation=requestAnimationFrame(render);
+};
     draw(0);await audioContext.resume();recorder.start();await audio.play();
     status.textContent="動画を生成中…";
     render();
