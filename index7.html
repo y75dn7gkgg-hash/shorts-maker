@@ -16,17 +16,22 @@ small{color:#bbb}
 </head>
 <body>
 <h1>Shorts Maker 7</h1>
-<p>画像・字幕・音声から縦型動画を作成</p>
+<p>複数画像・字幕・音声から縦型動画を作成</p>
 
-<label>背景画像</label>
-<input id="image" type="file" accept="image/*">
+<label>背景画像（複数選択可）</label>
+<input id="images" type="file" accept="image/*" multiple>
+<label>画像の表示時間（開始秒|終了秒|画像番号）</label>
+<textarea id="scenes" rows="5">0|5|1
+5|15|2
+15|25|3
+25|40|4</textarea>
+<small>画像番号は、選択した順に1、2、3…となるよ。存在しない画像番号は使わないでね。</small>
 
 <label>ナレーション音声</label>
 <input id="audio" type="file" accept="audio/*">
 
 <label>字幕（開始秒|終了秒|字幕）</label>
 <textarea id="captions" rows="7" placeholder="0|2|生活がちょっと楽になる！&#10;2|5|買ってよかった便利グッズ3選！&#10;5|8|第3位：コードレスハンディクリーナー"></textarea>
-<small>1行につき字幕1つ。時間は音声を聞きながら調整してね。</small>
 
 <canvas id="canvas" width="720" height="1280"></canvas>
 <button id="preview">プレビュー</button>
@@ -37,107 +42,95 @@ small{color:#bbb}
 <script>
 const canvas=document.getElementById("canvas");
 const ctx=canvas.getContext("2d");
-const imageInput=document.getElementById("image");
+const imageInput=document.getElementById("images");
 const audioInput=document.getElementById("audio");
+const scenesInput=document.getElementById("scenes");
 const captionsInput=document.getElementById("captions");
 const status=document.getElementById("status");
 const save=document.getElementById("save");
-let loadedImage=null;
+let loadedImages=[];
 let outputURL=null;
 
-function getCaptions(){
-  return captionsInput.value.split("\n").map(line=>{
+function parseRows(value,kind){
+  return value.split("\n").map(line=>{
     const p=line.split("|");
     if(p.length<3)return null;
-    const start=Number(p[0].trim());
-    const end=Number(p[1].trim());
-    const text=p.slice(2).join("|").trim();
-    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||!text)return null;
-    return {start,end,text};
+    const start=Number(p[0].trim()),end=Number(p[1].trim());
+    const content=p.slice(2).join("|").trim();
+    if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||!content)return null;
+    return {start,end,content};
   }).filter(Boolean);
 }
+function getScenes(){return parseRows(scenesInput.value,"scene").map(s=>({...s,index:Number(s.content)})).filter(s=>Number.isInteger(s.index)&&s.index>=1&&s.index<=loadedImages.length);}
+function getCaptions(){return parseRows(captionsInput.value,"caption").map(c=>({...c,text:c.content}));}
 
 function draw(time=0){
-  ctx.fillStyle="#111";
-  ctx.fillRect(0,0,720,1280);
-  if(loadedImage){
-    const scale=Math.max(720/loadedImage.width,1280/loadedImage.height);
-    const w=loadedImage.width*scale;
-    const h=loadedImage.height*scale;
-    ctx.drawImage(loadedImage,(720-w)/2,(1280-h)/2,w,h);
+  ctx.fillStyle="#111";ctx.fillRect(0,0,720,1280);
+  const scene=getScenes().find(s=>time>=s.start&&time<s.end);
+  const img=scene?loadedImages[scene.index-1]:loadedImages[0];
+  if(img){
+    const scale=Math.max(720/img.width,1280/img.height);
+    const w=img.width*scale,h=img.height*scale;
+    ctx.drawImage(img,(720-w)/2,(1280-h)/2,w,h);
   }
   const active=getCaptions().find(c=>time>=c.start&&time<c.end);
   if(!active)return;
-  ctx.font="bold 48px sans-serif";
-  ctx.textAlign="center";
-  ctx.textBaseline="middle";
-  const maxWidth=620;
-  const lines=[];
-  let line="";
+  ctx.font="bold 48px sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+  const lines=[];let line="";
   for(const ch of active.text){
-    if(ctx.measureText(line+ch).width>maxWidth){
-      lines.push(line);
-      line=ch;
-    }else line+=ch;
+    if(ctx.measureText(line+ch).width>620){lines.push(line);line=ch;}else line+=ch;
   }
   if(line)lines.push(line);
-  const lineHeight=60;
-  const blockHeight=lines.length*lineHeight;
-  const top=1280-blockHeight-110;
-  ctx.fillStyle="rgba(0,0,0,.72)";
-  ctx.fillRect(20,top,680,blockHeight+60);
+  const lh=60,bh=lines.length*lh,top=1280-bh-110;
+  ctx.fillStyle="rgba(0,0,0,.72)";ctx.fillRect(20,top,680,bh+60);
   ctx.fillStyle="#fff";
-  lines.forEach((t,i)=>ctx.fillText(t,360,top+30+i*lineHeight+lineHeight/2,620));
+  lines.forEach((t,i)=>ctx.fillText(t,360,top+30+i*lh+lh/2,620));
 }
 
-imageInput.onchange=()=>{
-  const file=imageInput.files[0];
-  if(!file)return;
-  const url=URL.createObjectURL(file);
-  const img=new Image();
-  img.onload=()=>{
-    loadedImage=img;
-    draw(0);
-    URL.revokeObjectURL(url);
-    status.textContent="画像を読み込みました。";
-  };
-  img.onerror=()=>status.textContent="画像を読み込めませんでした。";
-  img.src=url;
+imageInput.onchange=async()=>{
+  loadedImages=[];
+  const files=Array.from(imageInput.files||[]);
+  for(const file of files){
+    try{
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      await new Promise((resolve,reject)=>{
+        img.onload=resolve;img.onerror=reject;img.src=url;
+      });
+      loadedImages.push(img);
+      URL.revokeObjectURL(url);
+    }catch(e){}
+  }
+  draw(0);
+  status.textContent=loadedImages.length+"枚の画像を読み込みました。選択順を確認してください。";
 };
+scenesInput.oninput=()=>draw(0);
 captionsInput.oninput=()=>draw(0);
-
 document.getElementById("preview").onclick=()=>{
   draw(0);
-  status.textContent="0秒時点のプレビューです。字幕の時間設定を確認してください。";
+  status.textContent="0秒時点のプレビューです。時間設定を確認してください。";
 };
 
 document.getElementById("make").onclick=async()=>{
-  if(!loadedImage){status.textContent="先に背景画像を選択してください。";return;}
-  if(!audioInput.files[0]){status.textContent="先にナレーション音声を選択してください。";return;}
-  if(!getCaptions().length){status.textContent="字幕を「開始秒|終了秒|字幕」の形式で入力してください。";return;}
-  if(!window.MediaRecorder||!canvas.captureStream){
-    status.textContent="このブラウザは動画生成に対応していません。";return;
-  }
+  if(!loadedImages.length){status.textContent="先に画像を選択してください。";return;}
+  if(!audioInput.files[0]){status.textContent="先に音声を選択してください。";return;}
+  if(!getScenes().length){status.textContent="画像の時間設定を確認してください。";return;}
+  if(!getCaptions().length){status.textContent="字幕を開始秒|終了秒|字幕の形式で入力してください。";return;}
+  if(!window.MediaRecorder||!canvas.captureStream){status.textContent="このブラウザは動画生成に対応していません。";return;}
 
-  let audioURL=URL.createObjectURL(audioInput.files[0]);
-  let audio=new Audio();
-  audio.src=audioURL;
-  audio.preload="auto";
+  const audioURL=URL.createObjectURL(audioInput.files[0]);
+  const audio=new Audio();audio.src=audioURL;audio.preload="auto";
   try{
     await new Promise((resolve,reject)=>{
-      audio.onloadedmetadata=resolve;
-      audio.onerror=()=>reject(new Error("音声を読み込めません。"));
-      audio.load();
+      audio.onloadedmetadata=resolve;audio.onerror=()=>reject(new Error("音声を読み込めません。"));audio.load();
     });
     const seconds=audio.duration;
     if(!Number.isFinite(seconds)||seconds<=0)throw new Error("音声の長さを取得できません。");
-
     const stream=canvas.captureStream(30);
     const audioContext=new AudioContext();
     const source=audioContext.createMediaElementSource(audio);
     const destination=audioContext.createMediaStreamDestination();
-    source.connect(destination);
-    source.connect(audioContext.destination);
+    source.connect(destination);source.connect(audioContext.destination);
     destination.stream.getAudioTracks().forEach(t=>stream.addTrack(t));
 
     let mime="";
@@ -146,54 +139,35 @@ document.getElementById("make").onclick=async()=>{
     else if(MediaRecorder.isTypeSupported("video/webm"))mime="video/webm";
     else throw new Error("このブラウザで使える動画形式がありません。");
 
-    const recorder=new MediaRecorder(stream,{mimeType:mime});
-    const chunks=[];
+    const recorder=new MediaRecorder(stream,{mimeType:mime}),chunks=[];
     recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
     const done=new Promise((resolve,reject)=>{
-      recorder.onstop=resolve;
-      recorder.onerror=()=>reject(new Error("録画中にエラーが発生しました。"));
+      recorder.onstop=resolve;recorder.onerror=()=>reject(new Error("録画中にエラーが発生しました。"));
     });
-
     let animation;
     const render=()=>{
       draw(audio.currentTime||0);
       if(!audio.paused&&!audio.ended)animation=requestAnimationFrame(render);
     };
-    draw(0);
-    await audioContext.resume();
-    recorder.start();
-    await audio.play();
+    draw(0);await audioContext.resume();recorder.start();await audio.play();
     status.textContent="動画を生成中…";
     render();
-
-    await new Promise(resolve=>{
-      audio.onended=resolve;
-      audio.onerror=resolve;
-    });
-    cancelAnimationFrame(animation);
-    draw(seconds);
+    await new Promise(resolve=>{audio.onended=resolve;});
+    cancelAnimationFrame(animation);draw(seconds);
     await new Promise(resolve=>setTimeout(resolve,200));
-    recorder.stop();
-    await done;
-
+    recorder.stop();await done;
     stream.getTracks().forEach(t=>t.stop());
     destination.stream.getTracks().forEach(t=>t.stop());
     await audioContext.close();
-
     const blob=new Blob(chunks,{type:mime});
     if(!blob.size)throw new Error("動画データが空です。");
     if(outputURL)URL.revokeObjectURL(outputURL);
     outputURL=URL.createObjectURL(blob);
-    save.href=outputURL;
-    save.download=mime.includes("mp4")?"shorts.mp4":"shorts.webm";
-    save.textContent="生成動画を保存 ("+save.download+")";
-    save.style.display="block";
+    save.href=outputURL;save.download=mime.includes("mp4")?"shorts.mp4":"shorts.webm";
+    save.textContent="生成動画を保存 ("+save.download+")";save.style.display="block";
     status.textContent="生成完了！保存リンクをタップしてください。";
-  }catch(e){
-    status.textContent="生成できませんでした。\n"+(e.message||e);
-  }finally{
-    URL.revokeObjectURL(audioURL);
-  }
+  }catch(e){status.textContent="生成できませんでした。\n"+(e.message||e);}
+  finally{URL.revokeObjectURL(audioURL);}
 };
 draw(0);
 </script>
